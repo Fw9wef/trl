@@ -106,7 +106,7 @@ class GPT2HeadWithValueModel(GPT2PreTrainedModel):
 def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, top_p=1.0, bos_token = -1):
     """Sample text from language model."""
     input_ids = queries
-    batch_size = queries.shape[0]
+    batch_size, start_len = queries.shape
     if attention_mask is not None:
         ones = torch.ones((attention_mask.shape[0], 1),
                           dtype=attention_mask.dtype,
@@ -134,6 +134,6 @@ def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, t
                 break
 
     if attention_mask is not None:
-        return input_ids[:, -txt_len:], attention_mask
+        return input_ids[:, start_len:], attention_mask
 
-    return input_ids[:, -txt_len:]
+    return input_ids[:, start_len:]
