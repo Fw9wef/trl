@@ -102,6 +102,12 @@ class GPT2HeadWithValueModel(GPT2PreTrainedModel):
 
         return outputs
 
+def add_blanks(input_ids, attention_mask, n, bos_token):
+    zeros = torch.zeros((input_ids.shape[0], n))
+    attention_mask = torch.cat([attention_mask, zeros], dim=-1)
+    zeros[:,:] = bos_token
+    input_ids = torch.cat([input_ids, zeros], dim=-1)
+    return input_ids, attention_mask
 
 def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, top_p=1.0, bos_token = -1):
     """Sample text from language model."""
@@ -131,6 +137,7 @@ def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, t
             batch_eos = torch.where(batch_eos == bos_token, ones, batch_eos)
             attention_mask = torch.cat([attention_mask, 1-batch_eos], dim=-1)
             if torch.all(batch_eos == 1):
+                input_ids, attention_mask = add_blanks(input_ids, attention_mask, txt_len-i-1, bos_token)
                 break
 
     if attention_mask is not None:
