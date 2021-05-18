@@ -125,7 +125,7 @@ def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, t
     for i in range(txt_len):
         # Get Logits
         with torch.no_grad():
-            outputs = model(input_ids, attention_mask=attention_mask).detach()
+            outputs = model(input_ids, attention_mask=attention_mask)
         next_token_logits = outputs[0][:, -1, :]
         next_token_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
         # Sample
