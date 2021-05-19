@@ -201,7 +201,8 @@ class PPOTrainer:
     def compute_rewards(self, scores, logprobs, ref_logprobs):
         """Compute per token rewards from scores and KL-penalty."""
         kl = logprobs - ref_logprobs
-        non_score_reward = -self.kl_ctl.value * kl
+        #non_score_reward = -self.kl_ctl.value * kl
+        non_score_reward = torch.zeros_like(kl)
         rewards = non_score_reward.clone().detach()
         rewards[:, -1] += scores
         return rewards, non_score_reward, self.kl_ctl.value
