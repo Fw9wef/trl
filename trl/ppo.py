@@ -256,7 +256,7 @@ class PPOTrainer:
 
         #only the generation part of the values/logprobs is needed
         logprob, vpred = logprob[:, -gen_len:], vpred[:,-gen_len-1:]
-        logprob, vpred = logprob[:, :last_one_ind + 1], vpred[:, :last_one_ind]
+        logprob, vpred = logprob[:, :last_one_ind + 1], vpred[:, :last_one_ind + 1]
 
         vpredclipped = clip_by_value(vpred,
                                      values - self.ppo_params["cliprange_value"],
