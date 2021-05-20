@@ -255,7 +255,8 @@ class PPOTrainer:
         logprob = logprobs_from_logits(logits[:,:-1,:], model_input[:, 1:])
 
         #only the generation part of the values/logprobs is needed
-        logprob, vpred = logprob[:, -gen_len:last_one_ind+1], vpred[:,-gen_len-1:last_one_ind]
+        logprob, vpred = logprob[:, -gen_len:], vpred[:,-gen_len-1:]
+        logprob, vpred = logprob[:, :last_one_ind + 1], vpred[:, :last_one_ind]
 
         vpredclipped = clip_by_value(vpred,
                                      values - self.ppo_params["cliprange_value"],
