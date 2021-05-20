@@ -109,7 +109,7 @@ def add_blanks(input_ids, attention_mask, n, bos_token):
     input_ids = torch.cat([input_ids, zeros], dim=-1)
     return input_ids, attention_mask
 
-def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, top_p=1.0, bos_token = -1):
+def respond_to_batch(model, queries, attention_mask=None, txt_len=100, top_k=0, top_p=1.0, bos_token = -1):
     """Sample text from language model."""
     input_ids = queries
     batch_size, start_len = queries.shape
@@ -134,8 +134,8 @@ def respond_to_batch(model, queries, attention_mask=None, txt_len=20, top_k=0, t
         input_ids = torch.cat([input_ids, next_token.unsqueeze(-1)], dim=-1)
 
         if attention_mask is not None:
-            batch_eos = torch.where(batch_eos == bos_token, ones, batch_eos)
             attention_mask = torch.cat([attention_mask, 1-batch_eos], dim=-1)
+            batch_eos = torch.where(batch_eos == bos_token, ones, batch_eos)
             if torch.all(batch_eos == 1):
                 input_ids, attention_mask = add_blanks(input_ids, attention_mask, txt_len-i-1, bos_token)
                 break

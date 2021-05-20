@@ -123,7 +123,7 @@ class PPOTrainer:
         timing['time/ppo/forward_pass'] = time.time()-t
 
         t = time.time()
-        rewards, non_score_reward, kl_coef = self.compute_rewards(scores, logprobs, ref_logprobs)
+        rewards, non_score_reward, kl_coef = self.compute_rewards(scores, logprobs, ref_logprobs, model_mask=model_mask)
         timing['time/ppo/compute_rewards'] = time.time()-t
 
         t = time.time()
@@ -137,7 +137,7 @@ class PPOTrainer:
                     m_mask = model_mask[idx:idx+1]
                 else:
                     m_mask = None
-                # TODO: implement minibatch size other than 1
+
                 train_stats = self.train_minibatch(logprobs[idx:idx+1], values[idx:idx+1],
                                                    rewards[idx:idx+1], query[idx:idx+1],
                                                    response[idx:idx+1], model_input[idx:idx+1],
@@ -188,6 +188,20 @@ class PPOTrainer:
 
         return torch.cat(logprobs), torch.cat(ref_logprobs), torch.cat(values)
 
+    def get_last_one_index(self, mask):
+        if mask.dim()==2:
+            last_one_idx = list()
+            for s_mask in mask:
+                last_one_idx.append(torch.where(s_mask == 1)[0][-1])
+
+        elif mask.dim()==1:
+            last_one_idx = torch.where(mask == 1)[0][-1]
+
+        else:
+            last_one_idx = None
+
+        return last_one_idx
+
     def train_minibatch(self, logprobs, values, rewards, query, response, model_input, model_mask=None):
         """Train one PPO minibatch"""
         loss_p, loss_v, train_stats  = self.loss(logprobs, values, rewards, query, response, model_input,
@@ -198,13 +212,19 @@ class PPOTrainer:
         self.optimizer.step()
         return train_stats
 
-    def compute_rewards(self, scores, logprobs, ref_logprobs):
+    def compute_rewards(self, scores, logprobs, ref_logprobs, model_mask=None):
         """Compute per token rewards from scores and KL-penalty."""
         kl = logprobs - ref_logprobs
         #non_score_reward = -self.kl_ctl.value * kl
         non_score_reward = torch.zeros_like(kl)
         rewards = non_score_reward.clone().detach()
-        rewards[:, -1] += scores
+        if model_mask is not None:
+            rewards = rewards
+            pass
+        else:
+            last_one_inds = self.get_last_one_index(model_mask)
+            for i in range(rewards.shape[0]):
+                rewards[i, last_one_inds[i]] += scores
         return rewards, non_score_reward, self.kl_ctl.value
 
     def loss(self, old_logprobs, values, rewards, query, response, model_input, model_mask=None):
@@ -213,8 +233,15 @@ class PPOTrainer:
         advantages_reversed = []
         gen_len = response.shape[1]
 
-        for t in reversed(range(gen_len)):
-            nextvalues = values[:, t + 1] if t < gen_len - 1 else 0.0
+        response_mask = model_mask[:,-gen_len:]
+        last_one_ind = self.get_last_one_index(response_mask)
+        assert len(last_one_ind) == 1
+        last_one_ind = last_one_ind[0]
+        old_logprobs = old_logprobs[:, :last_one_ind+1]
+        values = values[:, :last_one_ind+1]
+        rewards = rewards[:, :last_one_ind+1]
+        for t in reversed(range(last_one_ind+1)):
+            nextvalues = values[:, t + 1] if t < last_one_ind else 0.0
             delta = rewards[:, t] + self.ppo_params['gamma'] * nextvalues - values[:, t]
             lastgaelam = delta + self.ppo_params['gamma'] * self.ppo_params['lam'] * lastgaelam
             advantages_reversed.append(lastgaelam)
@@ -228,7 +255,7 @@ class PPOTrainer:
         logprob = logprobs_from_logits(logits[:,:-1,:], model_input[:, 1:])
 
         #only the generation part of the values/logprobs is needed
-        logprob, vpred = logprob[:, -gen_len:], vpred[:,-gen_len-1:-1]
+        logprob, vpred = logprob[:, -gen_len:last_one_ind+1], vpred[:,-gen_len-1:last_one_ind]
 
         vpredclipped = clip_by_value(vpred,
                                      values - self.ppo_params["cliprange_value"],
