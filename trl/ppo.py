@@ -194,8 +194,9 @@ class PPOTrainer:
             else:
                 m_ids = model_ids[i*fbs:(i+1)*fbs]
 
-            logits, _, v = self.model(m_input, attention_mask=m_mask, position_ids=m_ids)
-            ref_logits, _, _ = self.ref_model(m_input, attention_mask=m_mask, position_ids=m_ids)
+            with torch.no_grad():
+                logits, _, v = self.model(m_input, attention_mask=m_mask, position_ids=m_ids)
+                ref_logits, _, _ = self.ref_model(m_input, attention_mask=m_mask, position_ids=m_ids)
 
             values.append(v[:, -gen_len-1:-1].detach())
             logprobs.append(logprobs_from_logits(logits[:, :-1, :], m_input[:,1:])[:, -gen_len:].detach())
@@ -221,7 +222,7 @@ class PPOTrainer:
                         model_mask=None, model_ids=None):
         """Train one PPO minibatch"""
         loss_p, loss_v, train_stats = self.loss(logprobs, values, rewards, query, response, model_input,
-                                                model_mask=model_mask)
+                                                model_mask=model_mask, model_ids=model_ids)
         loss = loss_p + loss_v
         self.optimizer.zero_grad()
         loss.backward()
@@ -242,7 +243,8 @@ class PPOTrainer:
                 rewards[i, last_one_inds[i]] += scores
         return rewards, non_score_reward, self.kl_ctl.value
 
-    def loss(self, old_logprobs, values, rewards, query, response, model_input, model_mask=None):
+    def loss(self, old_logprobs, values, rewards, query, response, model_input,
+             model_mask=None, model_ids=None):
         """Calculate policy and value losses."""
         lastgaelam = 0
         advantages_reversed = []
@@ -266,7 +268,7 @@ class PPOTrainer:
         advantages = whiten(advantages)
         advantages = advantages.detach()
 
-        logits, _, vpred = self.model(model_input, attention_mask=model_mask)
+        logits, _, vpred = self.model(model_input, attention_mask=model_mask, position_ids=model_ids)
         logprob = logprobs_from_logits(logits[:,:-1,:], model_input[:, 1:])
 
         #only the generation part of the values/logprobs is needed

@@ -135,7 +135,8 @@ def respond_to_batch(model, queries, mask=None, seq_ids=None,
     generation_finished = torch.zeros((batch_size, 1)).cuda()
     ones = torch.ones_like(generation_finished).cuda()
     for i in range(txt_len):
-        outputs = model(input_ids=input_seq, attention_mask=mask, position_ids=seq_ids)
+        with torch.no_grad():
+            outputs = model(input_ids=input_seq, attention_mask=mask, position_ids=seq_ids)
         next_token_logits = outputs[0][:, -1]
         next_token_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
         probs = torch.softmax(next_token_logits, dim=-1)
