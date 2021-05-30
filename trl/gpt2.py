@@ -151,4 +151,4 @@ def respond_to_batch(model, queries, mask=None, seq_ids=None,
             input_seq, mask, seq_ids = pad_seqs(input_seq, mask, seq_ids, txt_len - i - 1, pad_token)
             break
 
-    return input_seq, mask.long(), seq_ids.long()
+    return input_seq[:, -txt_len:], mask.long(), seq_ids.long()
