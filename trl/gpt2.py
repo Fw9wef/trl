@@ -102,45 +102,53 @@ class GPT2HeadWithValueModel(GPT2PreTrainedModel):
 
         return outputs
 
+
 def add_blanks(input_ids, attention_mask, n, bos_token):
     zeros = torch.zeros((input_ids.shape[0], n))
     attention_mask = torch.cat([attention_mask, zeros], dim=-1)
-    zeros[:,:] = bos_token
+    zeros[:, :] = bos_token
     input_ids = torch.cat([input_ids, zeros], dim=-1)
     return input_ids, attention_mask
 
-def respond_to_batch(model, queries, attention_mask=None, txt_len=100, top_k=0, top_p=1.0, bos_token = -1):
+
+def pad_seqs(input_seq, mask, seq_ids, n_pad, pad_token):
+    batch_size = input_seq.shape[0]
+
+    pad_tensor = torch.zeros((batch_size, n_pad), dtype=torch.long).cuda()
+    mask = torch.cat([mask, pad_tensor], dim=-1)
+
+    pad_tensor[:, :] = pad_token
+    input_seq = torch.cat([input_seq, pad_tensor], dim=-1)
+
+    pad_tensor = torch.repeat_interleave(seq_ids[:, -1:], n_pad, dim=-1)
+    seq_ids = torch.cat([seq_ids, pad_tensor], dim=-1)
+
+    return input_seq, mask, seq_ids
+
+
+def respond_to_batch(model, queries, mask=None, seq_ids=None,
+                     txt_len=100, top_k=0, top_p=1.0, bos_token=-1, pad_token=-1):
     """Sample text from language model."""
-    input_ids = queries
+    input_seq = queries
     batch_size, start_len = queries.shape
-    if attention_mask is not None:
-        ones = torch.ones((attention_mask.shape[0], 1),
-                          dtype=attention_mask.dtype,
-                          device=attention_mask.device)
-        batch_eos = torch.zeros((attention_mask.shape[0], 1),
-                                dtype=attention_mask.dtype,
-                                device=attention_mask.device)
-        response_mask = list()
 
+    generation_finished = torch.zeros((batch_size, 1)).cuda()
+    ones = torch.ones_like(generation_finished).cuda()
     for i in range(txt_len):
-        # Get Logits
-        with torch.no_grad():
-            outputs = model(input_ids, attention_mask=attention_mask)
-        next_token_logits = outputs[0][:, -1, :]
+        outputs = model(input_ids=input_seq, attention_mask=mask, position_ids=seq_ids)
+        next_token_logits = outputs[0][:, -1]
         next_token_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
-        # Sample
-        probs = F.softmax(next_token_logits, dim=-1)
-        next_token = torch.multinomial(probs, num_samples=1).squeeze(1)
-        input_ids = torch.cat([input_ids, next_token.unsqueeze(-1)], dim=-1)
+        probs = torch.softmax(next_token_logits, dim=-1)
+        next_token = torch.multinomial(probs, num_samples=1)
 
-        if attention_mask is not None:
-            attention_mask = torch.cat([attention_mask, 1-batch_eos], dim=-1)
-            batch_eos = torch.where(batch_eos == bos_token, ones, batch_eos)
-            if torch.all(batch_eos == 1):
-                input_ids, attention_mask = add_blanks(input_ids, attention_mask, txt_len-i-1, bos_token)
-                break
+        generation_finished = torch.where(next_token == bos_token, ones, generation_finished)
+        input_seq = torch.cat([input_seq, next_token], dim=-1)
+        mask = torch.cat([mask, (1 - generation_finished).long()], dim=-1)
+        new_ids = (seq_ids[:, -1:] + (1 - generation_finished).long())
+        seq_ids = torch.cat([seq_ids, new_ids], dim=-1)
 
-    if attention_mask is not None:
-        return input_ids[:, start_len:], attention_mask
+        if torch.all(generation_finished == 1):
+            input_seq, mask, seq_ids = pad_seqs(input_seq, mask, seq_ids, txt_len - i - 1, pad_token)
+            break
 
-    return input_ids[:, start_len:]
+    return input_seq, mask.long(), seq_ids.long()

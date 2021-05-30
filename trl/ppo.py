@@ -55,12 +55,12 @@ class PPOTrainer:
         "adap_kl_ctrl": True,
         "init_kl_coef":0.2,
         "target": 6,
-        "horizon":10000,
-        "gamma":1,
-        "lam":0.95,
+        "horizon": 10000,
+        "gamma": 1,
+        "lam": 0.95,
         "cliprange": .2,
-        "cliprange_value":.2,
-        "vf_coef":.1,
+        "cliprange_value": .2,
+        "vf_coef": .1,
         "batch_size": 256,
         "forward_batch_size": 16,
         "ppo_epochs": 4,
@@ -98,8 +98,7 @@ class PPOTrainer:
                                            self.ppo_params['target'],
                                            self.ppo_params['horizon'])
 
-
-    def step(self, query, response, scores, model_mask=None):
+    def step(self, query, response, scores, model_mask=None, model_ids=None):
         """
         Run a PPO optimisation step.
         args:
@@ -119,7 +118,8 @@ class PPOTrainer:
 
         t = time.time()
         with torch.no_grad():
-            logprobs, ref_logprobs, values = self.batched_forward_pass(model_input, gen_len, model_mask=model_mask)
+            logprobs, ref_logprobs, values = self.batched_forward_pass(model_input, gen_len,
+                                                                       model_mask=model_mask, model_ids=model_ids)
         timing['time/ppo/forward_pass'] = time.time()-t
 
         t = time.time()
@@ -133,16 +133,25 @@ class PPOTrainer:
             random.shuffle(idxs)
             for i in range(bs):
                 idx = idxs[i]
+
                 if model_mask is not None:
                     m_mask = model_mask[idx:idx+1]
                 else:
                     m_mask = None
 
+                if model_ids is not None:
+                    m_ids = model_ids[idx:idx+1]
+                else:
+                    m_ids = None
+
                 train_stats = self.train_minibatch(logprobs[idx:idx+1], values[idx:idx+1],
                                                    rewards[idx:idx+1], query[idx:idx+1],
                                                    response[idx:idx+1], model_input[idx:idx+1],
-                                                   model_mask=m_mask)
+                                                   model_mask=m_mask, model_ids=m_ids)
                 all_stats.append(train_stats)
+
+            self.optimizer.step()
+
         timing['time/ppo/optimize_step'] = time.time()-t
 
         t = time.time()
@@ -164,37 +173,43 @@ class PPOTrainer:
         stats.update(timing)
         return stats
 
-    def batched_forward_pass(self, model_input, gen_len, model_mask=None):
+    def batched_forward_pass(self, model_input, gen_len, model_mask=None, model_ids=None):
         """Calculate model outputs in multiple batches."""
-        bs = self.ppo_params['batch_size']
+        bs = model_input.shape[0]
         fbs = self.ppo_params['forward_batch_size']
         logprobs = []
         ref_logprobs = []
         values = []
 
-        for i in range(int(self.ppo_params['batch_size']/fbs)):
+        for i in range(int(bs/fbs)):
             m_input = model_input[i*fbs:(i+1)*fbs]
             if model_mask is None:
                 m_mask = None
+
             else:
                 m_mask = model_mask[i*fbs:(i+1)*fbs]
 
-            logits, _, v = self.model(m_input, attention_mask=m_mask)
-            ref_logits, _, _ = self.ref_model(m_input, attention_mask=m_mask)
+            if model_ids is None:
+                m_ids = None
+            else:
+                m_ids = model_ids[i*fbs:(i+1)*fbs]
+
+            logits, _, v = self.model(m_input, attention_mask=m_mask, position_ids=m_ids)
+            ref_logits, _, _ = self.ref_model(m_input, attention_mask=m_mask, position_ids=m_ids)
 
             values.append(v[:, -gen_len-1:-1].detach())
-            logprobs.append(logprobs_from_logits(logits[:,:-1,:], m_input[:,1:])[:, -gen_len:].detach())
-            ref_logprobs.append(logprobs_from_logits(ref_logits[:,:-1,:], m_input[:,1:])[:, -gen_len:].detach())
+            logprobs.append(logprobs_from_logits(logits[:, :-1, :], m_input[:,1:])[:, -gen_len:].detach())
+            ref_logprobs.append(logprobs_from_logits(ref_logits[:, :-1, :], m_input[:, 1:])[:, -gen_len:].detach())
 
-        return torch.cat(logprobs), torch.cat(ref_logprobs), torch.cat(values)
+        return torch.cat(logprobs, dim=0), torch.cat(ref_logprobs, dim=0), torch.cat(values, dim=0)
 
     def get_last_one_index(self, mask):
-        if mask.dim()==2:
+        if mask.dim() == 2:
             last_one_idx = list()
             for s_mask in mask:
                 last_one_idx.append(torch.where(s_mask == 1)[0][-1])
 
-        elif mask.dim()==1:
+        elif mask.dim() == 1:
             last_one_idx = torch.where(mask == 1)[0][-1]
 
         else:
@@ -202,21 +217,21 @@ class PPOTrainer:
 
         return last_one_idx
 
-    def train_minibatch(self, logprobs, values, rewards, query, response, model_input, model_mask=None):
+    def train_minibatch(self, logprobs, values, rewards, query, response, model_input,
+                        model_mask=None, model_ids=None):
         """Train one PPO minibatch"""
-        loss_p, loss_v, train_stats  = self.loss(logprobs, values, rewards, query, response, model_input,
-                                                 model_mask=model_mask)
+        loss_p, loss_v, train_stats = self.loss(logprobs, values, rewards, query, response, model_input,
+                                                model_mask=model_mask)
         loss = loss_p + loss_v
         self.optimizer.zero_grad()
         loss.backward()
-        self.optimizer.step()
         return train_stats
 
     def compute_rewards(self, scores, logprobs, ref_logprobs, model_mask=None):
         """Compute per token rewards from scores and KL-penalty."""
         kl = logprobs - ref_logprobs
-        #non_score_reward = -self.kl_ctl.value * kl
-        non_score_reward = torch.zeros_like(kl)
+        non_score_reward = -self.kl_ctl.value * kl
+        #non_score_reward = torch.zeros_like(kl)
         rewards = non_score_reward.clone().detach()
         if model_mask is not None:
             rewards = rewards
@@ -233,7 +248,7 @@ class PPOTrainer:
         advantages_reversed = []
         gen_len = response.shape[1]
 
-        response_mask = model_mask[:,-gen_len:]
+        response_mask = model_mask[:, -gen_len:]
         last_one_ind = self.get_last_one_index(response_mask)
         assert len(last_one_ind) == 1
         last_one_ind = last_one_ind[0]
