@@ -127,7 +127,7 @@ class PPOTrainer:
         timing['time/ppo/compute_rewards'] = time.time()-t
 
         t = time.time()
-        all_stats = []
+        #all_stats = []
         idxs = list(range(bs))
         for _ in range(self.ppo_params['ppo_epochs']):
             random.shuffle(idxs)
@@ -148,29 +148,30 @@ class PPOTrainer:
                                                    rewards[idx:idx+1], query[idx:idx+1],
                                                    response[idx:idx+1], model_input[idx:idx+1],
                                                    model_mask=m_mask, model_ids=m_ids)
-                all_stats.append(train_stats)
+                #all_stats.append(train_stats)
 
             self.optimizer.step()
 
-        timing['time/ppo/optimize_step'] = time.time()-t
+        #timing['time/ppo/optimize_step'] = time.time()-t
 
-        t = time.time()
-        train_stats = stack_dicts(all_stats)
+        #t = time.time()
+        #train_stats = stack_dicts(all_stats)
 
         # reshape advantages/ratios such that they are not averaged.
-        train_stats['policy/advantages'] = torch.flatten(train_stats['policy/advantages']).unsqueeze(0)
-        train_stats['policy/ratio'] = torch.flatten(train_stats['policy/ratio']).unsqueeze(0)
+        #train_stats['policy/advantages'] = torch.flatten(train_stats['policy/advantages']).unsqueeze(0)
+        #train_stats['policy/ratio'] = torch.flatten(train_stats['policy/ratio']).unsqueeze(0)
 
-        stats = self.record_step_stats(scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs,
-                                       non_score_reward=non_score_reward, train_stats=train_stats,
-                                       kl_coef=kl_coef)
-        stats = stats_to_np(stats)
-        timing['time/ppo/calc_stats'] = time.time()-t
+        #stats = self.record_step_stats(scores=scores, logprobs=logprobs, ref_logprobs=ref_logprobs,
+        #                               non_score_reward=non_score_reward, train_stats=train_stats,
+        #                               kl_coef=kl_coef)
+        #stats = stats_to_np(stats)
+        #timing['time/ppo/calc_stats'] = time.time()-t
 
-        self.kl_ctl.update(stats['objective/kl'], self.ppo_params['batch_size'])
+        #self.kl_ctl.update(stats['objective/kl'], self.ppo_params['batch_size'])
 
-        timing['time/ppo/total'] = time.time()-t0
-        stats.update(timing)
+        #timing['time/ppo/total'] = time.time()-t0
+        #stats.update(timing)
+        stats = 0
         return stats
 
     def batched_forward_pass(self, model_input, gen_len, model_mask=None, model_ids=None):
