@@ -145,9 +145,8 @@ def respond_to_batch(model, queries, mask=None, seq_ids=None,
         mask = torch.cat([mask, (1 - generation_finished).long()], dim=-1)
         input_seq = torch.cat([input_seq, next_token], dim=-1)
         generation_finished = torch.where(next_token == bos_token, ones, generation_finished)
-        #new_ids = (seq_ids[:, -1:] + (1 - generation_finished).long())
-        #seq_ids = torch.cat([seq_ids, new_ids], dim=-1)
-        seq_ids = torch.cumsum(mask, -1) - 1
+        new_ids = (seq_ids[:, -1:] + (1 - generation_finished).long())
+        seq_ids = torch.cat([seq_ids, new_ids], dim=-1)
 
         if torch.all(generation_finished == 1):
             input_seq, mask, seq_ids = pad_seqs(input_seq, mask, seq_ids, txt_len - i - 1, pad_token)
