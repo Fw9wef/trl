@@ -142,9 +142,9 @@ def respond_to_batch(model, queries, mask=None, seq_ids=None,
         probs = torch.softmax(next_token_logits, dim=-1)
         next_token = torch.multinomial(probs, num_samples=1)
 
+        generation_finished = torch.where(next_token == bos_token, ones, generation_finished)
         mask = torch.cat([mask, (1 - generation_finished).long()], dim=-1)
         input_seq = torch.cat([input_seq, next_token], dim=-1)
-        generation_finished = torch.where(next_token == bos_token, ones, generation_finished)
         new_ids = (seq_ids[:, -1:] + (1 - generation_finished).long())
         seq_ids = torch.cat([seq_ids, new_ids], dim=-1)
 
