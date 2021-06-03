@@ -233,15 +233,14 @@ class PPOTrainer:
         """Compute per token rewards from scores and KL-penalty."""
         kl = logprobs - ref_logprobs
         non_score_reward = -self.kl_ctl.value * kl
-        #non_score_reward = torch.zeros_like(kl)
         rewards = non_score_reward.clone().detach()
-        if model_mask is not None:
-            rewards = rewards
-            pass
+        if model_mask is None:
+            rewards[:,-1] += scores
         else:
+            model_mask = model_mask[:, -100:]
             last_one_inds = self.get_last_one_index(model_mask)
             for i in range(rewards.shape[0]):
-                rewards[i, last_one_inds[i]] += scores
+                rewards[i, last_one_inds[i]] += scores[i]
         return rewards, non_score_reward, self.kl_ctl.value
 
     def loss(self, old_logprobs, values, rewards, query, response, model_input,
