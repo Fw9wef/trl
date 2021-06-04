@@ -243,6 +243,7 @@ class PPOTrainer:
                 rewards[i, last_one_inds[i]] += scores[i]
         return rewards, non_score_reward, self.kl_ctl.value
 
+
     def loss(self, old_logprobs, values, rewards, query, response, model_input,
              model_mask=None, model_ids=None):
         """Calculate policy and value losses."""
